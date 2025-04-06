@@ -1,68 +1,132 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#include <RTClib.h>
 
-// Initialize the LCD (I2C Address: 0x27, 16 columns, 2 rows)
+// Initialize the LCD and RTC
 LiquidCrystal_I2C lcd(0x27, 16, 2);
+RTC_DS3231 rtc;
 
-// Define pins
-#define VOLTAGE_SENSOR A0  // Analog pin to measure voltage
-#define PIEZO_SENSOR A1    // Analog pin for footstep detection
-#define LED_PIN 9          // LED indicator for footsteps
+// Define pins for LEDs and switches
+const int ledPins[6] = {2, 3, 4, 5, 6, 7};
+const int chamberSelectPin = 10;
+const int hourSelectPin = 11;
+const int minuteSelectPin = 12;
+const int confirmPin = 13;
+const int buzzerPin = A0;
 
-// Variables
-int footstepCount = 0;  // Step counter
-const int threshold = 200;  // Sensitivity threshold for footstep detection
+// Variables to store time slots
+int chamberTimes[6][2]; // [chamber][0] = hour, [chamber][1] = minute
+int selectedChamber = 0;
+bool alarmActive = false;
 
 void setup() {
-    lcd.begin();
-    lcd.backlight();  // Turn on LCD backlight
-    Serial.begin(9600);  // Initialize Serial Monitor
+    // Initialize LCD
+    lcd.init();
+    lcd.backlight();
+    
+    // Initialize RTC
+    if (!rtc.begin()) {
+        lcd.print("Couldn't find RTC");
+        while (1);
+    }
+    if (rtc.lostPower()) {
+        rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    }
 
-    pinMode(LED_PIN, OUTPUT);  // Set LED pin as output
+    // Initialize pins
+    for (int i = 0; i < 6; i++) {
+        pinMode(ledPins[i], OUTPUT);
+    }
+    pinMode(chamberSelectPin, INPUT_PULLUP);
+    pinMode(hourSelectPin, INPUT_PULLUP);
+    pinMode(minuteSelectPin, INPUT_PULLUP);
+    pinMode(confirmPin, INPUT_PULLUP);
+    pinMode(buzzerPin, OUTPUT);
 
-    lcd.setCursor(0, 0);
-    lcd.print("Footstep Power");
-    delay(2000);
-    lcd.clear();
+    // Initialize chamber times to 0:00
+    for (int i = 0; i < 6; i++) {
+        chamberTimes[i][0] = 0;
+        chamberTimes[i][1] = 0;
+    }
 }
 
 void loop() {
-    // Read voltage sensor data
-    int sensorValue = analogRead(VOLTAGE_SENSOR);
-    float voltage = sensorValue * (5.0 / 1023.0) * 11;  // Convert ADC reading to voltage (11x divider)
+    DateTime now = rtc.now();
+    lcd.setCursor(0, 0);
+    lcd.print(now.hour(), DEC);
+    lcd.print(':');
+    lcd.print(now.minute(), DEC);
+    lcd.print(':');
+    lcd.print(now.second(), DEC);
 
-    // Read footstep sensor data
-    int piezoValue = analogRead(PIEZO_SENSOR);
-
-    // Detect footsteps using the piezo sensor
-    if (piezoValue > threshold) {
-        footstepCount++;  // Increase footstep count
-        Serial.println("Footstep detected!");
-
-        // Blink LED for step detection
-        digitalWrite(LED_PIN, HIGH);
-        delay(200);  
-        digitalWrite(LED_PIN, LOW);
-        
-        delay(200);  // Debounce delay
+    // Chamber selection
+    if (digitalRead(chamberSelectPin) == LOW) {
+        selectedChamber = (selectedChamber + 1) % 6;
+        delay(200); // Debounce delay
     }
 
-    // Print data to Serial Monitor
-    Serial.print("Voltage: ");
-    Serial.print(voltage);
-    Serial.print(" V | Steps: ");
-    Serial.println(footstepCount);
+    // Hour selection
+    if (digitalRead(hourSelectPin) == LOW) {
+        chamberTimes[selectedChamber][0] = (chamberTimes[selectedChamber][0] + 1) % 24;
+        delay(100); // Debounce delay
+    }
 
-    // Update LCD Display
-    lcd.setCursor(0, 0);
-    lcd.print("Volt: ");
-    lcd.print(voltage);
-    lcd.print("V   ");
+    // Minute selection
+    if (digitalRead(minuteSelectPin) == LOW) {
+        chamberTimes[selectedChamber][1] = (chamberTimes[selectedChamber][1] + 1) % 60;
+        delay(100); // Debounce delay
+    }
 
+    // Confirmation
+    if (digitalRead(confirmPin) == LOW) {
+      if(alarmActive == false){
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Time is set");
+        delay(2000); // Display message for 2 seconds
+        lcd.clear();
+      }
+      else if (alarmActive == true){
+        alarmActive = false;
+        delay(200); // Debounce delay
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("THANK YOU");
+        lcd.setCursor(0, 1);
+        lcd.print("Next Schedule On");
+        delay(2000); // Display message for 2 seconds
+        lcd.clear();
+      }
+    }
+
+    // Display selected chamber and time
     lcd.setCursor(0, 1);
-    lcd.print("Steps: ");
-    lcd.print(footstepCount);
-    lcd.print("   ");
+    lcd.print("Chamber ");
+    lcd.print(selectedChamber + 1);
+    lcd.print(": ");
+    lcd.print(chamberTimes[selectedChamber][0]);
+    lcd.print(':');
+    lcd.print(chamberTimes[selectedChamber][1]);
 
-    delay(500);  // Update rate
+    // Update LEDs
+    for (int i = 0; i < 6; i++) {
+        digitalWrite(ledPins[i], i == selectedChamber ? HIGH : LOW);
+    }
+
+    // Check for alarm
+    if (now.hour() == chamberTimes[selectedChamber][0] && now.minute() == chamberTimes[selectedChamber][1] && now.second() == 0) {
+        alarmActive = true;
+        delay(200); // Debounce delay
+        for (int i = 0; i < 6; i++) {
+          digitalWrite(ledPins[i], i == selectedChamber ? HIGH : LOW);
+        }
+    }
+
+    // Activate buzzer if alarm is active
+    if (alarmActive) {
+        digitalWrite(buzzerPin, HIGH);
+        delay(100);
+    } else {
+        digitalWrite(buzzerPin, LOW);
+    }
 }
