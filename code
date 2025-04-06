@@ -1,0 +1,68 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// Initialize the LCD (I2C Address: 0x27, 16 columns, 2 rows)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Define pins
+#define VOLTAGE_SENSOR A0  // Analog pin to measure voltage
+#define PIEZO_SENSOR A1    // Analog pin for footstep detection
+#define LED_PIN 9          // LED indicator for footsteps
+
+// Variables
+int footstepCount = 0;  // Step counter
+const int threshold = 200;  // Sensitivity threshold for footstep detection
+
+void setup() {
+    lcd.begin();
+    lcd.backlight();  // Turn on LCD backlight
+    Serial.begin(9600);  // Initialize Serial Monitor
+
+    pinMode(LED_PIN, OUTPUT);  // Set LED pin as output
+
+    lcd.setCursor(0, 0);
+    lcd.print("Footstep Power");
+    delay(2000);
+    lcd.clear();
+}
+
+void loop() {
+    // Read voltage sensor data
+    int sensorValue = analogRead(VOLTAGE_SENSOR);
+    float voltage = sensorValue * (5.0 / 1023.0) * 11;  // Convert ADC reading to voltage (11x divider)
+
+    // Read footstep sensor data
+    int piezoValue = analogRead(PIEZO_SENSOR);
+
+    // Detect footsteps using the piezo sensor
+    if (piezoValue > threshold) {
+        footstepCount++;  // Increase footstep count
+        Serial.println("Footstep detected!");
+
+        // Blink LED for step detection
+        digitalWrite(LED_PIN, HIGH);
+        delay(200);  
+        digitalWrite(LED_PIN, LOW);
+        
+        delay(200);  // Debounce delay
+    }
+
+    // Print data to Serial Monitor
+    Serial.print("Voltage: ");
+    Serial.print(voltage);
+    Serial.print(" V | Steps: ");
+    Serial.println(footstepCount);
+
+    // Update LCD Display
+    lcd.setCursor(0, 0);
+    lcd.print("Volt: ");
+    lcd.print(voltage);
+    lcd.print("V   ");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Steps: ");
+    lcd.print(footstepCount);
+    lcd.print("   ");
+
+    delay(500);  // Update rate
+}
